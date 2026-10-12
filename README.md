@@ -63,8 +63,8 @@ treated as a mistake and skipped.
 ## Quarantine
 
 Quarantined files are moved, not copied, so it is instant. They stay on their own drive:
-`%LOCALAPPDATA%\DiskGuardian\quarantine` for C:, and a hidden `X:\.DiskGuardian\quarantine` on other
-drives. Restore with `diskguardian restore <batch>`. **Space is freed only when the quarantine is
+`%LOCALAPPDATA%\DiskGuardian\quarantine` for C:, and a hidden `X:\.DiskGuardian\<your user name>\quarantine`
+on other drives, locked so other accounts on the PC cannot open it or plant files in it. Restore with `diskguardian restore <batch>`. **Space is freed only when the quarantine is
 emptied** (automatically after 7 days, or now with `diskguardian purge --batch <id> --yes`).
 
 ## Command line
