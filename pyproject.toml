@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "disk-guardian"
+version = "0.1.0"
+description = "Free Windows 10/11 agent that keeps every drive clean and never deletes your files without a restorable quarantine"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+diskguardian = "diskguardian.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+diskguardian = ["data/*.json"]

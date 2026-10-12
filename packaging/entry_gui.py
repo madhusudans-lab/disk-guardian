@@ -1,0 +1,1 @@
+from diskguardian.gui_entry import main; import sys; sys.exit(main())
