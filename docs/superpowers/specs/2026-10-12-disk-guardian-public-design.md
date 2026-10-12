@@ -5,16 +5,18 @@ Date: 2026-10-12 · Status: draft for review
 ## 1. Goal
 
 A free, open-source disk-space agent that anyone can install on a Windows 10 or 11 PC with
-a normal `setup.exe`. It keeps the system drive clean in the background, warns with a Windows
-notification when space runs low, and never deletes a user's real files without a restorable
-quarantine. Building, shipping and running it costs nothing.
+a normal `setup.exe`. It keeps **every local fixed drive** (C:, D:, E: ...) clean in the
+background, warns with a Windows notification when any drive runs low, and never deletes a
+user's real files without a restorable quarantine. Building, shipping and running it costs nothing.
 
 **Done means:** a `DiskGuardian-Setup-x.y.z.exe` that, on a 64-bit Windows 10 or 11 PC with no
-Python installed, installs without admin rights, registers the background task, shows a toast
-when free space is below the threshold, offers Start-menu actions, and uninstalls cleanly.
+Python installed, installs without admin rights, registers the background task, cleans and
+reports on all fixed drives, shows a toast when a drive's free space is below its threshold,
+offers Start-menu actions, and uninstalls cleanly.
 
 ### What the user said
 - Public release for anyone; Windows only; must work on Windows 10 and 11.
+- Clean the whole system: all drives, not only the system drive.
 - Full installer wizard (Start menu, uninstall from Settings).
 - AI optional, bring-your-own. Alerts by Windows toast only.
 - Simple, and it must cost nothing.
@@ -57,16 +59,17 @@ and fewer antivirus false positives). Standard library only at runtime.
 
 | Module | One job |
 |---|---|
-| `paths.py` | Resolve install dir, data dir, system drive (`%SystemDrive%`, never hard-coded `C:`); env override `DISKGUARDIAN_HOME` for tests |
+| `paths.py` | Resolve install dir, data dir, system drive (`%SystemDrive%`, never hard-coded `C:`), known folders (Downloads may be moved to another drive); env override `DISKGUARDIAN_HOME` for tests |
+| `drives.py` | List local fixed drives (`GetLogicalDrives` + `GetDriveTypeW == DRIVE_FIXED`; USB sticks, network, CD and RAM drives skipped); config `drives: "auto"` or a list, plus `exclude_drives`; per-drive usage and thresholds |
 | `config.py` | Load/merge defaults + `config.json`; validate thresholds |
 | `rules.py` | Load `rules.json` + optional `user-rules.json`; expand env vars and globs; size each rule |
 | `safety.py` | The refusal list: system folders, user profile roots, the app's own data dir, anything outside allowed roots. Every delete and quarantine goes through `safety.check(path)` |
 | `cleaner.py` | Execute a tier (`safe`/`cache`) — dry run unless `yes=True`; skips locked files; never follows junctions/symlinks |
-| `quarantine.py` | Move to quarantine with manifest, list, restore, purge after `quarantine_days` |
-| `scan.py` | Full scan: rule sizes, biggest folders, big files, idle dev folders, duplicates; writes `reports\latest.md` and `history.jsonl` |
+| `quarantine.py` | Move to quarantine with manifest, list, restore, purge after `quarantine_days`. One quarantine per drive so moves are instant renames: system drive → `%LOCALAPPDATA%\DiskGuardian\quarantine`, other drives → hidden `X:\.DiskGuardian\quarantine` |
+| `scan.py` | Rule sizes on every drive; full scan (biggest folders, big files, idle dev folders) across all fixed drives; duplicates on demand; writes `reports\latest.md` and `history.jsonl` |
 | `notify.py` | Toast via PowerShell + WinRT using AppUserModelID `DiskGuardian.Agent` (set on the Start-menu shortcut by Inno); falls back to the PowerShell AppID |
 | `ai.py` | Optional OpenAI-compatible chat call via `urllib` (works with Ollama, OpenRouter, Groq, Gemini, Anthropic's OpenAI-compatible endpoint, any local proxy). Off when not configured |
-| `watch.py` | Background cycle: auto-clean safe tier, purge expired quarantine, quick rescan, toast only on news |
+| `watch.py` | Background cycle: auto-clean safe tier on all drives, purge expired quarantine, quick rescan (full scan at most once per 24 h, since walking big HDDs is slow), toast only on news |
 | `cli.py` | argparse commands (below); `diskguardian-w` uses the same entry point with output redirected to the log and results shown as a toast |
 
 ### Commands
@@ -79,7 +82,11 @@ Every destructive command is a dry run unless `--yes` is given.
 
 ## 4. Rules and tiers
 
-Taken from the current tool and generalised (no owner-specific entries):
+Taken from the current tool and generalised (no owner-specific entries). Rule paths may use
+`{drive}` (expanded once per fixed drive, for example `{drive}\SteamLibrary\steamapps\shadercache\*`)
+as well as environment variables. Per-drive leftovers: Windows upgrade folders
+(`$WINDOWS.~BT`, `$Windows.~WS`, `$GetCurrent`, `Windows.old`), game-launcher shader/download
+caches, the Recycle Bin of every drive.
 
 | Tier | Behaviour | Rules |
 |---|---|---|
@@ -94,10 +101,14 @@ typical Windows 10/11 PCs; anything added must be safe or cache tier with a clea
 
 ## 5. Safety (the part that must not fail)
 
-- `safety.check` refuses: `%SystemRoot%` and `Program Files*` (except the explicit admin
-  temp/update paths in rules), `ProgramData` except listed subpaths, drive roots, the user
-  profile root and its Documents/Desktop/Pictures/Videos/Music/OneDrive folders for automatic
-  rules, `.ssh`, `.gnupg`, `.aws`, the app's own data folder.
+- `safety.check` refuses, **on every drive**: the drive root, `Windows`, `Program Files*` and
+  `ProgramData` (except the explicit admin temp/update paths in rules), `Users` and every profile
+  root, `System Volume Information`, `Recovery`, `Boot`, `EFI`, `$Recycle.Bin` (only the Recycle
+  Bin rule touches it, via `Clear-RecycleBin`), `pagefile.sys`/`hiberfil.sys`/`swapfile.sys`;
+  the user's Documents/Desktop/Pictures/Videos/Music/OneDrive (wherever they were moved) for
+  automatic rules; `.ssh`, `.gnupg`, `.aws`; every Disk Guardian data and quarantine folder.
+- On non-system drives nothing is deleted except paths matched by an explicit rule; personal
+  data such as `D:\Photos` is never a rule target and can only be quarantined by name.
 - Paths are normalised (case, `..`, short 8.3 names, `\\?\` prefixes) before checking.
 - Junctions and symlinks are never followed or deleted through.
 - A rule that expands to more than a configured file count or size cap (default 50 GB) aborts
@@ -108,8 +119,10 @@ typical Windows 10/11 PCs; anything added must be safe or cache tier with a clea
 
 ## 6. Notifications
 
-The `watch` cycle toasts only when: free space drops below `warn_free_gb` (default 15) or
-`critical_free_gb` (default 8) — once per day per level; usage grew by more than
+The `watch` cycle toasts only when: a drive's free space drops below its warn level or critical
+level — once per day per drive and level. Levels scale to drive size: warn when free is below
+`min(warn_free_gb, 10 % of size)` (default 15 GB), critical below `min(critical_free_gb, 5 %)`
+(default 8 GB), so a small 64 GB data drive is not always "low"; usage grew by more than
 `growth_alert_gb` since the last week; a weekly digest (optional, off by default). Toast text
 says how much safe junk was cleaned and suggests the *Clean junk now* shortcut.
 
@@ -143,7 +156,10 @@ whether to delete `%LOCALAPPDATA%\DiskGuardian` (warns if quarantine is not empt
 
 - Unit tests (`unittest`, stdlib) with a fake home and fake drive under a temp dir via
   `DISKGUARDIAN_HOME` — no test ever touches real user folders.
-- Safety tests: every refused path class, junction/symlink traversal, 8.3 names, size cap.
+- Safety tests: every refused path class on system and non-system drives, junction/symlink
+  traversal, 8.3 names, size cap.
+- Multi-drive tests: a temp folder mapped to a spare drive letter with `subst` (free, no admin)
+  acts as a second fixed drive for rules, quarantine and restore.
 - Port the relevant checks from the current `selftest.py`.
 - Smoke test of the built exe: `status`, `scan --quick`, dry-run `clean`.
 - Manual acceptance on this PC (Windows 11): install, task present, forced low-space toast
