@@ -72,4 +72,4 @@ def level_of(u, cfg):
 def label(d):
     """'C:' for a real drive, the folder itself for a test stand-in."""
     d = str(d)
-    return d[:2] if len(d) <= 3 else d
+    return d[:2].upper() if len(d) <= 3 else d

@@ -4,3 +4,5 @@ __pycache__/
 build/
 dist/
 *.egg-info/
+packaging/version_info.txt
+packaging/icon.ico
