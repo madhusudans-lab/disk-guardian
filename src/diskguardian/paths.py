@@ -84,7 +84,10 @@ def known_folder(name):
 
 def personal_folders():
     """User data folders: automatic rules never reach inside, nothing may delete them."""
+    # Both where Windows says the folder is (it may be redirected to OneDrive or another drive)
+    # and the default spot in the profile, which still holds personal files after a redirect.
     found = [known_folder(n) for n in PERSONAL_NAMES]
+    found += [home() / n.capitalize() for n in PERSONAL_NAMES]
     found += [home() / n for n in ("OneDrive", "Dropbox", "Google Drive", "iCloudDrive")]
     od = os.environ.get("OneDrive")
     if od and not os.environ.get("DISKGUARDIAN_PROFILE"):

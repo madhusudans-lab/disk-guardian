@@ -65,6 +65,9 @@ class SafetyTests(FakeMachine):
         os.environ["DISKGUARDIAN_KNOWN_DOCUMENTS"] = str(moved)
         self.assertBlocked(moved / "thesis.docx", automatic=True)
         self.assertBlocked(moved, automatic=False)
+        # the default location keeps its protection after a redirect
+        self.assertBlocked(self.profile / "Documents", automatic=False)
+        self.assertBlocked(self.profile / "Documents" / "old.docx", automatic=True)
 
     def test_long_path_prefix(self):
         self.assertBlocked("\\\\?\\C:\\Windows\\System32")
