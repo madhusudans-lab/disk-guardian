@@ -81,6 +81,16 @@ class WatchTests(FakeMachine):
         with mock.patch("subprocess.run", side_effect=OSError("no powershell")):
             self.assertFalse(notify.toast("t", "x"))
 
+    def test_toast_text_never_reaches_the_command_line(self):
+        os.environ.pop("DISKGUARDIAN_NO_TOAST")
+        evil = "D:\\x\u2019; Remove-Item C:\\important; \u2019 grew"
+        with mock.patch("subprocess.run") as run:
+            run.return_value.returncode = 0
+            notify.toast("Disk Guardian", evil)
+        argv, kwargs = run.call_args[0][0], run.call_args[1]
+        self.assertNotIn("Remove-Item", " ".join(argv))
+        self.assertIn("Remove-Item", kwargs["env"]["DG_TOAST_XML"])
+
     def test_watch_survives_errors(self):
         with mock.patch("diskguardian.scan.run", side_effect=RuntimeError("boom")):
             self.assertEqual(watch.run(), [])

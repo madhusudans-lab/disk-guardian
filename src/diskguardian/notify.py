@@ -16,8 +16,7 @@ PS_APP_ID = "{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\po
 
 
 def _esc(t):
-    return (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-            .replace('"', "&quot;").replace("'", "''"))
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
 
 def app_id():
@@ -36,15 +35,19 @@ def toast(title, text):
         return True
     xml = ('<toast><visual><binding template="ToastGeneric"><text>%s</text><text>%s</text></binding></visual></toast>'
            % (_esc(title), _esc(text[:300])))
+    # The script is constant; the text (which can contain folder names) travels in environment
+    # variables, so nothing in it can ever be read as PowerShell code.
     ps = ("[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null;"
           "[Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType=WindowsRuntime] > $null;"
           "$x = New-Object Windows.Data.Xml.Dom.XmlDocument;"
-          "$x.LoadXml('%s');"
-          "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('%s').Show("
-          "[Windows.UI.Notifications.ToastNotification]::new($x))") % (xml, app_id())
+          "$x.LoadXml($env:DG_TOAST_XML);"
+          "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($env:DG_TOAST_APPID).Show("
+          "[Windows.UI.Notifications.ToastNotification]::new($x))")
+    env = dict(os.environ, DG_TOAST_XML=xml, DG_TOAST_APPID=app_id())
     try:
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps],
-                           capture_output=True, timeout=30, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                           capture_output=True, timeout=30, env=env,
+                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         if r.returncode != 0:
             log("toast failed: %s" % (r.stderr or b"")[:300].decode("utf-8", "replace"))
             return False

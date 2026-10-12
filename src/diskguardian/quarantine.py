@@ -2,13 +2,14 @@
 system drive -> <data dir>\\quarantine, any other drive X: -> hidden X:\\.DiskGuardian\\quarantine.
 Moving files into quarantine frees no space until they are purged.
 """
+import ctypes
 import datetime as dt
 import os
 import subprocess
 from pathlib import Path
 
 from diskguardian import drives, paths, safety
-from diskguardian.util import gb, load_json, log, norm, now, remove, save_json, walk
+from diskguardian.util import gb, inside, is_link, load_json, log, norm, now, remove, save_json, walk
 
 
 def _drive_of(p):
@@ -21,32 +22,131 @@ def _drive_of(p):
     return best
 
 
+_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+_SID = []
+
+
+def _user_sid():
+    if not _SID:
+        try:
+            r = subprocess.run(["whoami", "/user", "/fo", "csv", "/nh"], capture_output=True, text=True,
+                               timeout=30, creationflags=_NO_WINDOW)
+            _SID.append(r.stdout.strip().split(",")[-1].strip('"') if r.returncode == 0 else "")
+        except (OSError, subprocess.SubprocessError):
+            _SID.append("")
+    return _SID[0]
+
+
+def _owner_sid(path):
+    """String SID of the owner of `path`, or None."""
+    try:
+        advapi, kernel = ctypes.windll.advapi32, ctypes.windll.kernel32
+    except AttributeError:
+        return None
+    owner, sd, text = ctypes.c_void_p(), ctypes.c_void_p(), ctypes.c_wchar_p()
+    if advapi.GetNamedSecurityInfoW(ctypes.c_wchar_p(str(path)), 1, 1, ctypes.byref(owner),
+                                     None, None, None, ctypes.byref(sd)) != 0:
+        return None
+    try:
+        if not advapi.ConvertSidToStringSidW(owner, ctypes.byref(text)):
+            return None
+        try:
+            return text.value
+        finally:
+            kernel.LocalFree(text)
+    finally:
+        kernel.LocalFree(sd)
+
+
+def _no_links(path, stop):
+    """True if no folder from `stop` down to `path` is a junction/symlink."""
+    p, stop = Path(path), Path(stop)
+    chain = [p] + [x for x in p.parents if inside(x, stop)]
+    for x in chain:
+        try:
+            if is_link(os.stat(x, follow_symlinks=False)):
+                return False
+        except OSError:
+            continue
+    return True
+
+
+def _private_ok(user_dir):
+    """A per-user quarantine on a shared drive must be ours, real, and not a link."""
+    if not _no_links(user_dir, user_dir.parent.parent):
+        return False
+    me = _user_sid()
+    return bool(me) and _owner_sid(user_dir) == me
+
+
+def _lock(user_dir):
+    """Only this user and SYSTEM may open the folder (other local accounts cannot plant files)."""
+    me = _user_sid()
+    if not me:
+        return False
+    r = subprocess.run(["icacls", str(user_dir), "/inheritance:r", "/grant:r",
+                        "*%s:(OI)(CI)F" % me, "*S-1-5-18:(OI)(CI)F"],
+                       capture_output=True, timeout=60, creationflags=_NO_WINDOW)
+    return r.returncode == 0
+
+
+def _shared_root(d):
+    return Path(d) / safety.DG_DIR / (os.environ.get("USERNAME") or "user")
+
+
 def root_for(path):
-    """Quarantine folder on the same drive as `path`, or None if one cannot be made there."""
+    """Quarantine folder on the same drive as `path`, or None if one cannot be made there safely."""
     d = _drive_of(path)
     if d is None:
         return None
     if d == norm(paths.system_drive()):
-        q = paths.data_dir() / "quarantine"
-    else:
-        q = Path(d) / safety.DG_DIR / "quarantine"
+        q = paths.data_dir() / "quarantine"  # inside the private profile
+        try:
+            q.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return None
+        return q
+    user_dir = _shared_root(d)
     try:
-        new = not q.parent.exists()
-        q.mkdir(parents=True, exist_ok=True)
-        if new and q.parent.name == safety.DG_DIR:
-            subprocess.run(["attrib", "+h", str(q.parent)], capture_output=True, timeout=30)
+        top_new = not user_dir.parent.exists()
+        if not user_dir.exists():
+            user_dir.mkdir(parents=True)
+            if not _lock(user_dir):
+                return None
+        if top_new:
+            subprocess.run(["attrib", "+h", str(user_dir.parent)], capture_output=True, timeout=30,
+                           creationflags=_NO_WINDOW)
+        if not _private_ok(user_dir):
+            return None
+        q = user_dir / "quarantine"
+        q.mkdir(exist_ok=True)
+        return q if _no_links(q, user_dir) else None
     except (OSError, subprocess.SubprocessError):
         return None
-    return q
 
 
 def all_roots():
     found = [paths.data_dir() / "quarantine"]
     for r in safety.drive_roots():
-        q = Path(r) / safety.DG_DIR / "quarantine"
-        if q.exists():
-            found.append(q)
+        user_dir = _shared_root(r)
+        if (user_dir / "quarantine").exists() and _private_ok(user_dir):
+            found.append(user_dir / "quarantine")
     return found
+
+
+def _trusted(item, batch_dir):
+    """A manifest entry is used only if its stored copy really lives inside its own batch folder
+    (no links on the way) and its original location passes the normal safety check."""
+    stored = item.get("stored", "")
+    orig = item.get("orig", "")
+    if not stored or not orig or not inside(stored, batch_dir) or not _no_links(stored, batch_dir):
+        return False
+    try:
+        if not inside(os.path.realpath(stored), os.path.realpath(batch_dir)):
+            return False
+    except OSError:
+        return False
+    return safety.blocked(orig, automatic=False) is None
 
 
 def _batch_id(label):
@@ -102,7 +202,13 @@ def batches():
     for root in all_roots():
         for m in sorted(root.glob("*/manifest.json")):
             data = load_json(m, None)
-            if data and data.get("items"):
+            if not isinstance(data, dict) or not isinstance(data.get("items"), list) or not _no_links(m.parent, root):
+                continue
+            items = [it for it in data["items"] if isinstance(it, dict) and _trusted(it, m.parent)]
+            if len(items) != len(data["items"]):
+                log("quarantine %s: ignored %d untrusted manifest entries" % (m.parent, len(data["items"]) - len(items)))
+            data["items"] = items
+            if items:
                 data["dir"] = str(m.parent)
                 data["size"] = sum(x["size"] for x in data["items"])
                 out.append(data)

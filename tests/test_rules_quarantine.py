@@ -74,7 +74,7 @@ class QuarantineTests(FakeMachine):
         f = self.make(self.drive_b / "Old" / "setup.exe", 3000)
         batch = quarantine.move([f.parent], "test", out=lambda *_: None)
         self.assertFalse(f.exists())
-        self.assertTrue((self.drive_b / ".DiskGuardian" / "quarantine" / batch).exists())
+        self.assertTrue((self.drive_b / ".DiskGuardian" / os.environ["USERNAME"] / "quarantine" / batch).exists())
         self.assertEqual(quarantine.summary()["size"], 3000)
         self.assertTrue(quarantine.restore(batch, out=lambda *_: None))
         self.assertTrue(f.exists())
@@ -103,6 +103,49 @@ class QuarantineTests(FakeMachine):
         msgs = []
         self.assertIsNone(quarantine.move([d], "t", out=msgs.append))
         self.assertTrue((d / "x.dll").exists())
+
+    def _plant(self, batch_dir, items):
+        batch_dir.mkdir(parents=True, exist_ok=True)
+        (batch_dir / "manifest.json").write_text(json.dumps(
+            {"batch": batch_dir.name, "created": "2000-01-01T00:00:00", "label": "x", "items": items}))
+
+    def test_planted_manifest_cannot_delete_outside_its_batch(self):
+        victim = self.make(self.drive_a / "Photos" / "wedding.jpg", 10)
+        q = self.data / "quarantine" / "20000101-000000-evil"
+        self._plant(q, [{"orig": str(victim), "stored": str(victim), "size": 10}])
+        self.assertEqual(quarantine.batches(), [])
+        quarantine.purge(days=0)
+        self.assertTrue(victim.exists())
+
+    def test_junctioned_batch_is_ignored(self):
+        from tests.helpers import junction
+        victim = self.make(self.drive_a / "Photos" / "0" / "wedding.jpg", 10)
+        q = self.data / "quarantine"
+        q.mkdir(parents=True)
+        link = q / "20000101-000000-evil"
+        if not junction(link, self.drive_a / "Photos"):
+            self.skipTest("cannot create junction here")
+        (self.drive_a / "Photos" / "manifest.json").write_text(json.dumps(
+            {"batch": "evil", "created": "2000-01-01T00:00:00", "label": "x",
+             "items": [{"orig": str(self.drive_b / "x"), "stored": str(link / "0" / "wedding.jpg"), "size": 10}]}))
+        quarantine.purge(days=0)
+        self.assertTrue(victim.exists())
+
+    def test_restore_refuses_unsafe_target(self):
+        q = self.data / "quarantine" / "20000101-000000-evil"
+        stored = self.make(q / "0" / "evil.exe", 10)
+        self._plant(q, [{"orig": str(self.drive_a / "Windows" / "evil.exe"), "stored": str(stored), "size": 10}])
+        self.assertFalse(quarantine.restore("evil", out=lambda *_: None))
+        self.assertFalse((self.drive_a / "Windows" / "evil.exe").exists())
+
+    def test_shared_drive_folder_is_private(self):
+        f = self.make(self.drive_b / "a.iso")
+        quarantine.move([f], "t", out=lambda *_: None)
+        import subprocess
+        acl = subprocess.run(["icacls", str(self.drive_b / ".DiskGuardian" / os.environ["USERNAME"])],
+                             capture_output=True, text=True).stdout
+        self.assertNotIn("Users:", acl)
+        self.assertNotIn("Everyone", acl)
 
     def test_no_quarantine_folder_possible_leaves_file(self):
         f = self.make(self.drive_b / "a.iso")
