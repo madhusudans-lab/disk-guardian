@@ -3,7 +3,7 @@
 
 #define AppVersion GetEnv("DG_VERSION")
 #if AppVersion == ""
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #define AppExeW "diskguardian-w.exe"
 #define AppExe "diskguardian.exe"
@@ -39,13 +39,15 @@ CloseApplications=yes
 Source: "..\dist\DiskGuardian\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
+; Each shortcut needs its own AppUserModelID: Start collapses shortcuts that share one.
+; "Disk status" carries the bare AUMID that notify.py uses for toasts.
 Name: "{group}\Disk status"; Filename: "{app}\{#AppExeW}"; Parameters: "status"; AppUserModelID: "{#AUMID}"; Comment: "Free space on every drive"
-Name: "{group}\Clean junk now"; Filename: "{app}\{#AppExeW}"; Parameters: "clean --tier safe --yes"; AppUserModelID: "{#AUMID}"; Comment: "Delete crash dumps, old temp files and other junk"
-Name: "{group}\Clean caches"; Filename: "{app}\{#AppExeW}"; Parameters: "clean --tier cache --yes"; AppUserModelID: "{#AUMID}"; Comment: "Clear browser, app and download caches (they rebuild themselves)"
-Name: "{group}\Deep clean (administrator)"; Filename: "{app}\{#AppExeW}"; Parameters: "deep-clean"; AppUserModelID: "{#AUMID}"; Comment: "Also clean Windows temp and update caches (asks for permission)"
-Name: "{group}\Open report"; Filename: "{app}\{#AppExeW}"; Parameters: "open-report"; AppUserModelID: "{#AUMID}"; Comment: "What uses space on your drives"
-Name: "{group}\Open quarantine"; Filename: "{app}\{#AppExeW}"; Parameters: "open-quarantine"; AppUserModelID: "{#AUMID}"; Comment: "Files moved aside, restorable for 7 days"
-Name: "{group}\Settings"; Filename: "{app}\{#AppExeW}"; Parameters: "open-settings"; AppUserModelID: "{#AUMID}"
+Name: "{group}\Clean junk now"; Filename: "{app}\{#AppExeW}"; Parameters: "clean --tier safe --yes"; AppUserModelID: "{#AUMID}.CleanJunk"; Comment: "Delete crash dumps, old temp files and other junk"
+Name: "{group}\Clean caches"; Filename: "{app}\{#AppExeW}"; Parameters: "clean --tier cache --yes"; AppUserModelID: "{#AUMID}.CleanCaches"; Comment: "Clear browser, app and download caches (they rebuild themselves)"
+Name: "{group}\Deep clean (administrator)"; Filename: "{app}\{#AppExeW}"; Parameters: "deep-clean"; AppUserModelID: "{#AUMID}.DeepClean"; Comment: "Also clean Windows temp and update caches (asks for permission)"
+Name: "{group}\Open report"; Filename: "{app}\{#AppExeW}"; Parameters: "open-report"; AppUserModelID: "{#AUMID}.Report"; Comment: "What uses space on your drives"
+Name: "{group}\Open quarantine"; Filename: "{app}\{#AppExeW}"; Parameters: "open-quarantine"; AppUserModelID: "{#AUMID}.Quarantine"; Comment: "Files moved aside, restorable for 7 days"
+Name: "{group}\Settings"; Filename: "{app}\{#AppExeW}"; Parameters: "open-settings"; AppUserModelID: "{#AUMID}.Settings"
 Name: "{group}\Uninstall Disk Guardian"; Filename: "{uninstallexe}"
 
 [Run]
