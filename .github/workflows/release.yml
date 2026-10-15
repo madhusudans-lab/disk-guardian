@@ -29,7 +29,7 @@ jobs:
         shell: pwsh
         run: |
           if ($env:GITHUB_REF -like "refs/tags/v*") {
-            $version = $env:GITHUB_REF.Substring(8)
+            $version = $env:GITHUB_REF_NAME
             if ($version.StartsWith("v")) {
               $version = $version.Substring(1)
             }

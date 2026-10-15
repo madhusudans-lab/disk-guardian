@@ -1,7 +1,7 @@
 # Disk Guardian build (Windows PowerShell 5.1 or PowerShell 7).
 # Produces dist\DiskGuardian-Setup-<Version>.exe and its .sha256.
 # Needs: Python 3.10+ and Inno Setup 6 (winget install JRSoftware.InnoSetup). Both free.
-param([string]$Version = "0.1.3")
+param([string]$Version = "0.1.4")
 
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot

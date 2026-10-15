@@ -3,7 +3,7 @@
 
 #define AppVersion GetEnv("DG_VERSION")
 #if AppVersion == ""
-  #define AppVersion "0.1.3"
+  #define AppVersion "0.1.4"
 #endif
 #define AppExeW "diskguardian-w.exe"
 #define AppExe "diskguardian.exe"
