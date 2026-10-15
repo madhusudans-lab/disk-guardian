@@ -87,6 +87,11 @@ def _lock(user_dir):
     r = subprocess.run(["icacls", str(user_dir), "/inheritance:r", "/grant:r",
                         "*%s:(OI)(CI)F" % me, "*S-1-5-18:(OI)(CI)F"],
                        capture_output=True, timeout=60, creationflags=_NO_WINDOW)
+    if r.returncode != 0:
+        return False
+    # An elevated admin creates folders owned by Administrators, not the user; _private_ok needs the user.
+    r = subprocess.run(["icacls", str(user_dir), "/setowner", "*" + me],
+                       capture_output=True, timeout=60, creationflags=_NO_WINDOW)
     return r.returncode == 0
 
 
