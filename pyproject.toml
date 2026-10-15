@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "disk-guardian"
-version = "0.1.2"
+version = "0.1.3"
 description = "Free Windows 10/11 agent that keeps every drive clean and never deletes your files without a restorable quarantine"
 readme = "README.md"
 license = {text = "MIT"}

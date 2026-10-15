@@ -130,11 +130,11 @@ quarantine still holds files, the default is to keep them.
 
 ```
 winget install JRSoftware.InnoSetup
-.\build.ps1 -Version 0.1.2
+.\build.ps1 -Version 0.1.3
 ```
 
 This creates a `.venv`, runs the tests, builds `dist\DiskGuardian\` with PyInstaller and wraps it
-into `dist\DiskGuardian-Setup-0.1.2.exe`. Run from source with
+into `dist\DiskGuardian-Setup-0.1.3.exe`. Run from source with
 `$env:PYTHONPATH="src"; python -m diskguardian status`. Tests: `python -m unittest discover -s tests -t .`
 (they use a fake profile and fake drives in a temp folder, never your real files).
 
